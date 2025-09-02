@@ -16,7 +16,10 @@
   "author": "[@xaoxuu](https://github.com/xaoxuu/)",
   "license": "MIT",
   "dependencies": {
-    "jsdom": "^20.0.2"
+    "jsdom": "^20.0.3"
   },
-  "homepage": "https://github.com/xaoxuu/"
+  "homepage": "https://github.com/xaoxuu/",
+  "engines": {
+    "node": "22.x"
+  }
 }
