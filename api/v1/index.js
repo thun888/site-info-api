@@ -23,7 +23,25 @@ export default function handler(req, res) {
       }
     }
     console.log('referer ok:', referer);
-    const url = req.query['url'];
+
+    console.log('prams url:', req.url);
+
+    // 参数 type url
+    // type 不存在默认是 site
+    // type: site | voice | file
+    // url: 网址
+
+    const validTypes = ['site', 'voice', 'file'];
+
+    const type = req.query['type'] || 'site';
+    if (!validTypes.includes(type)) {
+        console.log('type invalid:', type);
+        res.send({});
+        return;
+    }
+    console.log('type:', type);
+
+    const url = req.query['url'] || '';
     if (!url.startsWith('http')) {
         console.error('url invalid:', url);
         res.send({});
@@ -32,17 +50,35 @@ export default function handler(req, res) {
     console.log('url:', url);
     //添加头
     res.setHeader("Vercel-CDN-Cache-Control", "max-age=604800");
-    if (cache[url]) {
+    if (cache[type + ' ' + url]) {
         console.log('use cache');
-        res.send(cache[url]);
+        res.send(cache[type + ' ' + url]);
     } else {
-        main(url, (data) => {
-            if (Object.keys(data).length > 0) {
-                data.url = url;
-                cache[url] = data;
-            }
-            res.send(data);
-        });
+        switch(type) {
+            case 'site':
+                main(url, (data) => {
+                    if (Object.keys(data).length > 0) {
+                        data.url = url;
+                        cache['site ' + url] = data;
+                    }
+                    res.send(data);
+                });
+                break;
+            case 'voice':
+                break;
+            case 'file':
+                getFile(url, (data) => {
+                    if (Object.keys(data).length > 0) {
+                        data.url = url;
+                        cache['file ' + url] = data;
+                    }
+                    console.log(data);
+                    res.send(data);
+                });
+                break;
+            default:
+                console('can not exist!');
+        }
     }
 }
 
@@ -61,6 +97,9 @@ function main(url, callback) {
                 console.log('location:', location);
                 if (isRedirect && location && location != url) {
                     main(location, callback);
+                    return;
+                } else {
+                    callback({});
                     return;
                 }
             }
@@ -157,4 +196,38 @@ function getInfo(link, html, callback) {
         console.log('error >>', error);
         callback({});
     }
+}
+
+function getFile(url, callback) {
+    const request = https.get(url, (response) => {
+        response.setEncoding('binary') // 二进制
+        let file = '';
+        response.on('data', (chunk) => {
+            file = file + chunk;
+        });
+        response.on('end', () => {
+            console.log('end:', response.statusCode);
+            if (response.statusCode != 200) {
+                let location = response.headers['location'];
+                let isRedirect = [301,302,303,307,308].includes(response.statusCode);
+                console.log('isRedirect:', isRedirect);
+                console.log('location:', location);
+                if (isRedirect && location && location != url) {
+                    getFile(location, callback);
+                    return;
+                } else {
+                    callback({});
+                    return;
+                }
+            }
+            let data = {};
+            data.file = Buffer.from(file, 'binary');
+            callback(data);
+        });
+    });
+    request.on('error', error => {
+        console.error('error:', error);
+        callback({});
+    })
+    request.end();
 }
