@@ -41,6 +41,7 @@ export default async function handler(req, res) {
 
   const url = req.query?.url || "";
   const needBase64 = req.query?.base64 === "1" || req.query?.base64 === "true";
+  const needPureIcon = req.query?.pureicon === "1" || req.query?.pureicon === "true";
   if (!url.startsWith("http")) {
     console.error("url invalid:", url);
     res.json({});
@@ -50,7 +51,7 @@ export default async function handler(req, res) {
 
   res.setHeader("Vercel-CDN-Cache-Control", "max-age=604800");
 
-  const cacheKey = `${type} ${url} ${needBase64 ? 'base64' : 'nobase64'}`;
+  const cacheKey = `${type} ${url} ${needBase64 ? 'base64' : 'nobase64'} ${needPureIcon ? 'pureicon' : 'nopureicon'}`;
   if (cache[cacheKey]) {
     console.log("use cache");
     res.json(cache[cacheKey]);
@@ -60,10 +61,32 @@ export default async function handler(req, res) {
   switch (type) {
     case "site":
       // 获取用户是否传入了 base64 参数
-      
+
       main(url, (data) => {
         if (Object.keys(data).length > 0) {
           data.url = url;
+
+          // pureicon 模式：直接返回图标图片
+          if (needPureIcon && data.icon) {
+            let iconUrl = data.icon;
+            if (iconUrl.startsWith("//")) {
+              iconUrl = "https:" + iconUrl;
+            }
+            https.get(iconUrl, (iconRes) => {
+              if (iconRes.statusCode !== 200) {
+                res.status(404).json({ error: "Icon not found" });
+                return;
+              }
+              const contentType = iconRes.headers["content-type"] || "image/x-icon";
+              res.setHeader("Content-Type", contentType);
+              res.setHeader("Cache-Control", "public, max-age=604800");
+              iconRes.pipe(res);
+            }).on("error", () => {
+              res.status(500).json({ error: "Failed to fetch icon" });
+            });
+            return;
+          }
+
           // 判断逻辑：有图标、用户需要 Base64、且缓存中还没转换过
           if (data.icon && needBase64 && !data.iconBase64) {
             getIconBase64(data.icon, (base64) => {
