@@ -40,6 +40,7 @@ export default async function handler(req, res) {
   console.log("type:", type);
 
   const url = req.query?.url || "";
+  const needBase64 = req.query?.base64 === "1" || req.query?.base64 === "true";
   if (!url.startsWith("http")) {
     console.error("url invalid:", url);
     res.json({});
@@ -49,7 +50,7 @@ export default async function handler(req, res) {
 
   res.setHeader("Vercel-CDN-Cache-Control", "max-age=604800");
 
-  const cacheKey = `${type} ${url}`;
+  const cacheKey = `${type} ${url} ${needBase64 ? 'base64' : 'nobase64'}`;
   if (cache[cacheKey]) {
     console.log("use cache");
     res.json(cache[cacheKey]);
@@ -58,12 +59,26 @@ export default async function handler(req, res) {
 
   switch (type) {
     case "site":
+      // 获取用户是否传入了 base64 参数
+      
       main(url, (data) => {
         if (Object.keys(data).length > 0) {
           data.url = url;
-          cache[cacheKey] = data;
+          // 判断逻辑：有图标、用户需要 Base64、且缓存中还没转换过
+          if (data.icon && needBase64 && !data.iconBase64) {
+            getIconBase64(data.icon, (base64) => {
+              data.iconBase64 = base64;
+              cache[cacheKey] = data; // 存入缓存
+              res.json(data);
+            });
+          } else {
+            // 不需要 Base64 或已经处理过，直接返回
+            cache[cacheKey] = data;
+            res.json(data);
+          }
+        } else {
+          res.json({});
         }
-        res.json(data);
       });
       break;
     case "voice":
@@ -123,6 +138,32 @@ function isHttp(url) {
   return /^(https?:)?\/\//g.test(url);
 }
 
+function getIconBase64(iconUrl, callback) {
+  if (!iconUrl) return callback("");
+  
+  if (iconUrl.startsWith("//")) {
+    iconUrl = "https:" + iconUrl; 
+  }
+
+  // 如果已经是 base64 了，直接返回
+  if (iconUrl.startsWith('data:image')) return callback(iconUrl);
+
+  https.get(iconUrl, (res) => {
+    if (res.statusCode !== 200) {
+      return callback("");
+    }
+    const chunks = [];
+    res.on("data", (chunk) => chunks.push(chunk));
+    res.on("end", () => {
+      const buffer = Buffer.concat(chunks);
+      const mimeType = res.headers["content-type"] || "image/x-icon";
+      const base64 = `data:${mimeType};base64,${buffer.toString("base64")}`;
+      callback(base64);
+    });
+  }).on("error", () => {
+    callback("");
+  });
+}
 function getInfo(link, html, callback) {
   try {
     let data = {};
